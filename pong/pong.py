@@ -1,40 +1,76 @@
-import numpy as numpy
-import random
+import numpy as np
 import gym
 from keras.layers import Dense, LeakyReLU
 from keras.models import Sequential
 from keras.utils import multi_gpu_model
 from pong_utils import *
-#Environment
-env=gym.make("Pong-v0")
-#Episode
-observation=env.reset()
-previous_input=None
 
 #Action Space
-UP_ACTION=2 # or 4
-DOWN_ACTION=3 # or 5
+PADDLE_UP=2 # or 4
+PADDLE_DOWN=3 # or 5
 
 #Hyperparameters, Variables init
-x_train,y_train,reward=[],[],[]
-sum_reward=0.
 max_episodes=2000
 gamma=0.99 # Discounted reward
+episode=0
+previous_input=None
+X_train,Y_train,rewards=[],[],[]
+sum_rewards=0
 
 #Simple Model
-model=Sequential()
-model.add(Dense(units=150,input_dim=80*80,activation='LeakyReLU'))
-model.add(Dense(units=1,activation='sigmoid'))
+def policygradient_model():
+	model=Sequential()
+	model.add(Dense(units=150,input_dim=80*80,kernel_initializer='glorot_uniform'))
+	model.add(LeakyReLU(alpha=0.2))
+	model.add(Dense(units=1,activation='sigmoid',kernel_initializer='RandomNormal'))
 
-model.summary()
-multi_model=multi_gpu_model(model,gpus=1)
-multi_model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+	#multi_model=multi_gpu_model(model,gpus=1)
+	model.compile(loss='binary_crossentropy',optimizer='adam',metrics=['accuracy'])
+	model.summary()
+	return model
 
+if __name__=="__main__":
+	#Environment
+	env=gym.make("Pong-v0")
+	model=policygradient_model()
+	observation=env.reset()
 
-#
-for this_episode in range(2000):
-	current_screen=preprocess(observation)
-	x=current_screen-previous_screen if previous_screen is not None else np.zeros(6400) 
-	previous_screen=current_screen
-
+	current_input=preprocess(observation)
 	
+	while True:
+		env.render()
+
+		x=current_input-previous_input if previous_input is not None else np.zeros(80*80) 
+		action_prob=model.predict(np.expand_dims(x,axis=0))
+		action=PADDLE_UP if np.random.uniform()<action_prob else PADDLE_DOWN
+		y=action-2
+
+		X_train.append(x)
+		Y_train.append(y)
+		observation,reward,done,info=env.step(action) # Environment step
+				
+		rewards.append(reward)
+		sum_rewards+=reward
+		
+		if done: #Episode over
+			X=np.vstack(X_train)
+			Y=np.vstack(Y_train)
+			discount_rewards=discounted_rewards(rewards,gamma)
+			print("Episode {}, This Reward {}, Cumulative Reward {}".format(episode,reward,sum_rewards))
+			
+			model.fit(x=X,y=Y,sample_weight=discount_rewards)
+			
+			if(episode%100==0):
+				# serialize model to JSON
+				model_json=model.to_json()
+				with open("pong_model_ep_{}.json".format(episode), "w") as json_file:
+					json_file.write(model_json)
+					# serialize weights to HDF5
+				model.save_weights("pong_model_ep_{}.h5".format(episode))
+				print("Saved model to disk")
+			episode+=1
+			# Reinitialize
+			X_train,Y_train,rewards=[],[],[]
+			observation=env.reset()
+			sum_rewards=0
+			previous_input=None
