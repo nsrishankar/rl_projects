@@ -10,18 +10,18 @@ PADDLE_UP=2 # or 4
 PADDLE_DOWN=3 # or 5
 
 #Hyperparameters, Variables init
+input_dim=80*80
 max_episodes=2000
 gamma=0.99 # Discounted reward
 episode=0
-previous_input=None
 X_train,Y_train,rewards=[],[],[]
 sum_rewards=0
 
 #Simple Model
 def policygradient_model():
 	model=Sequential()
-	model.add(Dense(units=150,input_dim=80*80,kernel_initializer='glorot_uniform'))
-	model.add(LeakyReLU(alpha=0.2))
+	model.add(Dense(units=200,input_dim=input_dim,kernel_initializer='glorot_uniform'))
+	model.add(LeakyReLU(alpha=0.1))
 	model.add(Dense(units=1,activation='sigmoid',kernel_initializer='RandomNormal'))
 
 	#multi_model=multi_gpu_model(model,gpus=1)
@@ -34,16 +34,17 @@ if __name__=="__main__":
 	env=gym.make("Pong-v0")
 	model=policygradient_model()
 	observation=env.reset()
-
-	current_input=preprocess(observation)
+	previous_input=None
+	
 	
 	while True:
 		env.render()
-
-		x=current_input-previous_input if previous_input is not None else np.zeros(80*80) 
+		current_input=preprocess(observation)
+		x=current_input-previous_input if previous_input is not None else np.zeros(input_dim) 
 		action_prob=model.predict(np.expand_dims(x,axis=0))
 		action=PADDLE_UP if np.random.uniform()<action_prob else PADDLE_DOWN
-		y=action-2
+		y=1 if action==2 else 0
+		previous_input=current_input
 
 		X_train.append(x)
 		Y_train.append(y)
